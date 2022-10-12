@@ -1,13 +1,13 @@
---- ~ sines 0.92 ~
+--- ~ sines 1.0.0 ~
 -- @oootini, @eigen, @sixolet
---
---   ~~    ~~    ~~    ~~    ~~    ~~
---  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~
--- ~    ~~    ~~    ~~    ~~    ~~    ~
+-- z_tuning lib by @zebra
+--                                  
+-- ,-.   ,-.   ,-.   
+--    `-'   `-'   `-'
 --
 -- ▼ controls ▼
 --
--- E1     - master volume
+-- E1    - master volume
 -- E2    - active sine
 --
 -- active sine control:
@@ -75,6 +75,7 @@ local prev_16n_slider_v = {
 local fps = 14
 local redraw_clock
 local screen_dirty = false
+_mods = require 'core/mods'
 
 engine.name = "Sines"
 MusicUtil = require "musicutil"
@@ -111,6 +112,31 @@ function init()
         end
       end
     end)
+
+  --check if z_tuning
+  local ztuning
+  if _mods.is_enabled('z_tuning') then
+    z_tuning = require('z_tuning/lib/mod')
+    tuning_table = z_tuning.get_tuning_state()
+    if tuning_table and tuning_table.selected_tuning then
+      selected_tuning_value = tuning_table.selected_tuning
+    end
+  end
+
+  -- if z_tuning, configure and refresh all sine freqs when z_tuning changes
+  if z_tuning then
+    z_tuning.set_tuning_change_callback(
+      function()
+        local num, detune, hz
+        for voice = 1, 16 do
+          num = params:get("note" .. voice)
+          detune = params:get("cents" .. voice)
+          hz = MusicUtil.note_num_to_freq(num + (detune * 0.01))
+          engine.hz(voice - 1, hz)
+        end
+      end)
+  end
+
 end
 
 function cleanup()
@@ -390,7 +416,7 @@ end
 --update when a cc change is detected
 m = midi.connect()
 m.event = function(data)
-  local d = midi.to_msg(data)
+local d = midi.to_msg(data)
   -- if d.type == "cc" then
   -- --set all the sliders + fm values
   -- for i = 1,16 do
@@ -499,14 +525,26 @@ function redraw()
   screen.stroke()
   --display current values
   screen.move(0, 5)
-  screen.level(2)
-  screen.text("note: ")
-  screen.level(15)
-  screen.text(MusicUtil.note_num_to_name(params:get("note" .. edit + 1), true) .. " ")
-  screen.level(2)
-  screen.text("detune: ")
-  screen.level(15)
-  screen.text(params:get("cents" .. edit + 1) .. " cents")
+  if z_tuning then
+    screen.level(2)
+    screen.text("z_root: ")
+    screen.level(15)
+    --TODO: set the z root with encoder 1?
+    screen.text(math.floor((params:get("zt_root_freq")) * 10 / 10) .. " Hz" .. " ")
+    screen.level(2)
+    screen.text("z_tun: ")
+    screen.level(15)
+    screen.text(selected_tuning_value)
+  else
+    screen.level(2)
+    screen.text("note: ")
+    screen.level(15)
+    screen.text(MusicUtil.note_num_to_name(params:get("note" .. edit + 1), true) .. " ")
+    screen.level(2)
+    screen.text("detune: ")
+    screen.level(15)
+    screen.text(params:get("cents" .. edit + 1) .. " cents")
+  end
   screen.move(0, 12)
   screen.level(2)
   screen.text("env: ")
