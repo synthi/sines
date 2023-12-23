@@ -50,6 +50,7 @@ local envs = {
   {"evolve3", 0.3, 20.0, 12.0},
   {"evolve4", 0.4, 25.0, 15.0}
 }
+
 local env_values = {}
 local env_edit = 1
 local env_accum = 1
@@ -70,16 +71,32 @@ local prev_16n_slider_v = {
   fm_index = {},
   smpl_rate = {},
   bit_depth = {},
-  note = {},
+  note = {}
 }
 local fps = 14
 local redraw_clock
 local screen_dirty = false
-_mods = require 'core/mods'
+
+--crow "chord intervals" are the individual sine outputs that we use to set 1 v/oct for crow outputs
+local crow_chords = {
+  {1, 3, 5, 7},  -- Maj
+  {1, 5, 8, 10}, -- Maj6
+  {1, 5, 8, 12}, -- Maj7
+  {1, 5, 8, 11}, -- Dom7
+  {1, 5, 9, 11}, -- Augm7
+  {1, 6, 8, 11}, -- 7sus4
+  {1, 4, 8, 12}, -- MinMaj7
+  {1, 4, 8, 10}, -- Min6
+  {1, 4, 8, 11}, -- Min7
+  {1, 4, 7, 10}, -- Dim7
+  {1, 4, 7, 11}, -- Min7b5
+  {1, 5, 9, 12}  -- Maj7#5
+}
 
 engine.name = "Sines"
-MusicUtil = require "musicutil"
+_mods = require 'core/mods'
 _16n = include "sines/lib/16n"
+MusicUtil = require "musicutil"
 
 function init()
   print("loaded Sines engine")
@@ -213,10 +230,12 @@ function add_params()
     table.insert(scale_names, string.lower(MusicUtil.SCALES[i].name))
   end
   params:add{type = "option", id = "scale_mode", name = "scale mode",
-    options = scale_names, default = 5,
-  action = function() set_notes() end}
+    options = scale_names, default = 5, action = function() set_notes() end}
   params:add{type = "number", id = "root_note", name = "root note",
   min = 0, max = 127, default = 60, formatter = function(param) return MusicUtil.note_num_to_name(param:get(), true) end, action = function() set_notes() end}
+
+  params:add{type = "number", id = "crow_chord", name = "crow chord", min = 1, max = 12, default = 5, formatter = function(param) return crow_chord_formatter(param:get()) end, action = function(x) set_crow_notes(x) end}
+
   params:add{type = "option", id = "16n_auto", name = "auto bind 16n", options = {"yes", "no"}, default = 1}
   params:add{type = "option", id = "16n_params_jump", name = "16n params jumps", options = {"yes", "no"}, default = 1}
   --amp slew
@@ -268,6 +287,12 @@ function set_notes()
   scale_toggle = true
   for i = 1, 16 do
     params:set("note" .. i, notes[i])
+  end
+end
+
+function set_crow_notes(chord)
+  for i = 1, 4 do
+    crow.output[i].volts = notes[crow_chords[chord][i]]
   end
 end
 
@@ -413,6 +438,13 @@ function set_pan()
   end
 end
 
+function crow_chord_formatter(chord)
+  --return the chord as a string
+  local chord_array = crow_chords[chord]
+  local chord_output = table.concat(chord_array, ",")
+  return (chord_output)
+end
+
 --update when a cc change is detected
 m = midi.connect()
 m.event = function(data)
@@ -435,7 +467,7 @@ end
 function enc(n, delta)
   if n == 1 then
     if key_1_pressed == 0 then
-      params:delta('output_level', delta)
+      params:delta('crow_chord', delta)
     end
   elseif n == 2 then
     if key_1_pressed == 0 and key_2_pressed == 0 and key_3_pressed == 0 then
@@ -550,8 +582,6 @@ function redraw()
   screen.text("env: ")
   screen.level(15)
   screen.text(env_formatter(params:get("env" .. edit + 1)))
-  --screen.text(envs[env_values[edit+1]][1])
-  --screen.text(params:get("attack" .. edit+1) .. "/" ..  params:get("decay" .. edit+1) .. " s")
   screen.level(2)
   screen.text(" fm index: ")
   screen.level(15)
@@ -571,8 +601,12 @@ function redraw()
   screen.level(15)
   screen.text(pan_formatter(params:get("pan" .. edit + 1)))
   screen.level(2)
-  screen.text(" master vol: ")
+  screen.text(" ^^ crow: ")
   screen.level(15)
-  screen.text(math.floor((params:get('output_level')) * 10 / 10) .. " dB")
+  if crow.connected() then
+    screen.text(crow_chord_formatter(params:get("crow_chord")))
+  else
+    screen.text("none")
+  end
   screen.update()
 end
