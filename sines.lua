@@ -7,13 +7,13 @@
 --
 -- ▼ controls ▼
 --
--- E1    - master volume
+-- E1    - select crow chord
 -- E2    - active sine
 --
 -- active sine control:
 -- E3      - amplitude
--- K2 + E2 - note
--- K2 + E3 - detune
+-- K2 + E2 - note * 
+-- K2 + E3 - detune *
 -- K2 + K3 - voice panning
 -- K3 + E2 - envelope
 -- K3 + E3 - FM index
@@ -22,11 +22,15 @@
 --
 -- sine control w/ 16n:
 -- n                - amplitude
--- n + K2           - detune
+-- n + K2           - detune *
 -- n + K3           - FM index
 -- n + K1 + K2      - sample rate
 -- n + K1 + K3      - bit depth
--- n + K1 + K2 + K3 - note
+-- n + K1 + K2 + K3 - note *
+--
+-- * not used when z_tuning is active
+--
+-- Change z_tuning in parameters > edit > Z_TUNING 
 
 local sliders = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 local edit = 1
@@ -217,8 +221,10 @@ function virtual_slider_callback(slider_id, v)
     end
   elseif key_1_pressed == 1 and key_2_pressed == 1 and key_3_pressed == 1 then
     if is_prev_16n_slider_v_crossing("note", slider_id, v) then
-      params:set("note" .. edit + 1, v)
-      prev_16n_slider_v["note"][slider_id] = v
+      if not z_tuning then
+        params:set("note" .. edit + 1, v)
+        prev_16n_slider_v["note"][slider_id] = v
+      end
     end
   end
   screen_dirty = true
@@ -489,7 +495,9 @@ function enc(n, delta)
 
     elseif key_1_pressed == 0 and key_2_pressed == 1 and key_3_pressed == 0 then
       -- increment the note value with delta
-      params:set("note" .. edit + 1, params:get("note" .. edit + 1) + delta)
+      if not z_tuning then
+        params:set("note" .. edit + 1, params:get("note" .. edit + 1) + delta)
+      end
 
     elseif key_1_pressed == 1 and key_2_pressed == 0 and key_3_pressed == 0 then
       --set sample rate
@@ -556,53 +564,66 @@ function redraw()
   screen.line(32 + step * 4, 68)
   screen.stroke()
   --display current values
-  screen.move(0, 5)
   if z_tuning then
+    screen.move(0, 5)
     screen.level(2)
-    screen.text("z_root: ")
-    screen.level(15)
-    --TODO: set the z root with encoder 1?
-    screen.text(math.floor((params:get("zt_root_freq")) * 10 / 10) .. " Hz" .. " ")
+    screen.text("root:")
+    screen.move(22, 5)
+    screen.text((string.format("%.2f", params:get("zt_root_freq"))) .. " hz")
+    screen.move(62, 5)
     screen.level(2)
-    screen.text("z_tun: ")
-    screen.level(15)
+    screen.text("z_tun:")
+    screen.move(92, 5)
     screen.text(selected_tuning_value)
   else
+    screen.move(0, 5)
     screen.level(2)
     screen.text("note: ")
     screen.level(15)
+    screen.move(22, 5)
     screen.text(MusicUtil.note_num_to_name(params:get("note" .. edit + 1), true) .. " ")
+    screen.move(62, 5)
     screen.level(2)
-    screen.text("detune: ")
+    screen.text("detun:")
     screen.level(15)
+    screen.move(92, 5)
     screen.text(params:get("cents" .. edit + 1) .. " cents")
   end
   screen.move(0, 12)
   screen.level(2)
-  screen.text("env: ")
+  screen.text("envl:")
   screen.level(15)
+  screen.move(22, 12)
   screen.text(env_formatter(params:get("env" .. edit + 1)))
   screen.level(2)
-  screen.text(" fm index: ")
+  screen.move(62, 12)
+  screen.text("fm idx:")
   screen.level(15)
+  screen.move(92, 12)
   screen.text(params:get("fm_index" .. edit + 1))
   screen.move(0, 19)
   screen.level(2)
-  screen.text("smpl rate: ")
+  screen.text("smpl:")
   screen.level(15)
-  screen.text(params:get("smpl_rate" .. edit + 1) / 1000 .. "k")
+  screen.move(22, 19)
+  screen.text(params:get("smpl_rate" .. edit + 1) / 1000 .. " kHz")
   screen.level(2)
-  screen.text(" bit dpt: ")
+  screen.move(62, 19)
+  screen.text("bit dp:")
   screen.level(15)
-  screen.text(params:get("bit_depth" .. edit + 1))
+  screen.move(92, 19)
+  screen.text(params:get("bit_depth" .. edit + 1) .. " bits")
   screen.move(0, 26)
   screen.level(2)
-  screen.text("pan: ")
+  screen.text("pan:")
   screen.level(15)
+  screen.move(22, 26)
   screen.text(pan_formatter(params:get("pan" .. edit + 1)))
   screen.level(2)
-  screen.text(" ^^ crow: ")
+  screen.move(62, 26)
+  screen.text("crow:")
   screen.level(15)
+  screen.move(92, 26)
   if crow.connected() then
     screen.text(crow_chord_formatter(params:get("crow_chord")))
   else
