@@ -298,7 +298,8 @@ end
 
 function set_crow_notes(chord)
   for i = 1, 4 do
-    crow.output[i].volts = notes[crow_chords[chord][i]]
+    local crow_out = crow_chords[chord][i]
+    crow.output[i].volts = (params:get("note" .. crow_out)-40)/12
   end
 end
 
@@ -322,6 +323,15 @@ function set_note(synth_num, value)
     edit = synth_num
   end
   screen_dirty = true
+  if norns.crow.connected() then
+    --update just the affected crow note. is there a better way to do this?
+    for i = 1, 4 do
+      local crow_out = crow_chords[params:get("crow_chord")][i]
+      if crow_out == synth_num + 1 then
+        crow.output[i].volts = (params:get("note" .. crow_out)-40)/12
+      end
+    end
+  end
 end
 
 function set_freq(synth_num, value)
@@ -624,7 +634,7 @@ function redraw()
   screen.text("crow:")
   screen.level(15)
   screen.move(92, 26)
-  if crow.connected() then
+  if norns.crow.connected() then
     screen.text(crow_chord_formatter(params:get("crow_chord")))
   else
     screen.text("none")
