@@ -108,14 +108,18 @@ function init()
   edit = 0
   for i = 1, 16 do
     env_values[i] = params:get("env" .. i)
-    cents[i] = params:get("cents" .. i)
+    if not z_tuning then
+      cents[i] = params:get("cents" .. i)
+    end
     sliders[i] = (params:get("vol" .. i)) * 32
   end
 
   _16n.init(_16n_slider_callback)
   for i = 1, 16 do
     prev_16n_slider_v["vol"][i] = util.linlin(0.0, 1.0, 0, 127, params:get("vol"..i))
-    prev_16n_slider_v["cents"][i] = util.linlin(-200, 200, 0, 127, params:get("cents"..i))
+    if not z_tuning then
+      prev_16n_slider_v["cents"][i] = util.linlin(-200, 200, 0, 127, params:get("cents"..i))
+    end
     prev_16n_slider_v["fm_index"][i] = util.linlin(0.0, 200.0, 0, 127, params:get("fm_index"..i))
     prev_16n_slider_v["smpl_rate"][i] = util.linlin(48000, 480, 0, 127, params:get("smpl_rate"..i))
     prev_16n_slider_v["bit_depth"][i] = util.linlin(24, 1, 0, 127, params:get("bit_depth"..i))
@@ -138,24 +142,22 @@ function init()
   local ztuning
   if _mods.is_enabled('z_tuning') then
     z_tuning = require('z_tuning/lib/mod')
-    tuning_table = z_tuning.get_tuning_state()
-    if tuning_table and tuning_table.selected_tuning then
-      selected_tuning_value = tuning_table.selected_tuning
-    end
   end
 
   -- if z_tuning, configure and refresh all sine freqs when z_tuning changes
   if z_tuning then
     z_tuning.set_tuning_change_callback(
       function()
-        local num, detune, hz
+        local num, hz
         for voice = 1, 16 do
           num = params:get("note" .. voice)
-          detune = params:get("cents" .. voice)
-          hz = MusicUtil.note_num_to_freq(num + (detune * 0.01))
+          hz = MusicUtil.note_num_to_freq(num)
           engine.hz(voice - 1, hz)
         end
       end)
+    if norns.crow.connected() then
+      set_crow_notes()
+    end
   end
 
 end
@@ -200,9 +202,11 @@ function virtual_slider_callback(slider_id, v)
       prev_16n_slider_v["vol"][slider_id] = v
     end
   elseif key_1_pressed == 0 and key_2_pressed == 1 and key_3_pressed == 0 then
-    if is_prev_16n_slider_v_crossing("cents", slider_id, v) then
-      params:set("cents" .. edit + 1, util.linlin(0, 127, -200, 200, v))
-      prev_16n_slider_v["cents"][slider_id] = v
+    if not z_tuning then
+      if is_prev_16n_slider_v_crossing("cents", slider_id, v) then
+        params:set("cents" .. edit + 1, util.linlin(0, 127, -200, 200, v))
+        prev_16n_slider_v["cents"][slider_id] = v
+      end
     end
   elseif key_1_pressed == 0 and key_2_pressed == 0 and key_3_pressed == 1 then
     if is_prev_16n_slider_v_crossing("fm_index", slider_id, v) then
@@ -240,7 +244,7 @@ function add_params()
   params:add{type = "number", id = "root_note", name = "root note",
   min = 0, max = 127, default = 60, formatter = function(param) return MusicUtil.note_num_to_name(param:get(), true) end, action = function() set_notes() end}
 
-  params:add{type = "number", id = "crow_chord", name = "crow chord", min = 1, max = 12, default = 5, formatter = function(param) return crow_chord_formatter(param:get()) end, action = function(x) set_crow_notes(x) end}
+  params:add{type = "number", id = "crow_chord", name = "crow chord", min = 1, max = 12, default = 5, formatter = function(param) return crow_chord_formatter(param:get()) end, action = function(x) set_crow_chord(x) end}
 
   params:add{type = "option", id = "16n_auto", name = "auto bind 16n", options = {"yes", "no"}, default = 1}
   params:add{type = "option", id = "16n_params_jump", name = "16n params jumps", options = {"yes", "no"}, default = 1}
@@ -260,8 +264,10 @@ function add_params()
     params:set_action("vol" .. i, function(x) set_vol(i - 1, x) end)
     params:add{type = "number", id = "pan" ..i, name = "pan " .. i, min = -1, max = 1, default = 0, formatter = function(param) return pan_formatter(param:get()) end, action = function(x) set_synth_pan(i - 1, x) end}
     params:add{type = "number", id = "note" ..i, name = "note " .. i, min = 0, max = 127, default = 60, formatter = function(param) return MusicUtil.note_num_to_name(param:get(), true) end, action = function(x) set_note(i - 1, x) end}
-    params:add_control("cents" .. i, "cents detune " .. i, controlspec.new(-200, 200, 'lin', 1, 0, 'cents'))
-    params:set_action("cents" .. i, function(x) tune(i - 1, x) end)
+    if not z_tuning then
+      params:add_control("cents" .. i, "cents detune " .. i, controlspec.new(-200, 200, 'lin', 1, 0, 'cents'))
+      params:set_action("cents" .. i, function(x) tune(i - 1, x) end)
+    end
     params:add_control("fm_index" .. i, "fm index " .. i, controlspec.new(0.0, 200.0, 'lin', 1.0, 3.0))
     params:set_action("fm_index" .. i, function(x) set_fm_index(i - 1, x) end)
     params:add{type = "number", id = "env" ..i, name = "env " .. i, min = 1, max = 16, default = 1, formatter = function(param) return env_formatter(param:get()) end, action = function(x) set_env(i, x) end}
@@ -294,12 +300,20 @@ function set_notes()
   for i = 1, 16 do
     params:set("note" .. i, notes[i])
   end
+  set_crow_notes()
 end
 
-function set_crow_notes(chord)
+function set_crow_chord(chord)
   for i = 1, 4 do
-    local crow_out = crow_chords[chord][i]
-    crow.output[i].volts = (params:get("note" .. crow_out)-40)/12
+    local crow_note = crow_chords[chord][i]
+    crow.output[i].volts = (params:get("note" .. crow_note)-40)/12
+  end
+end
+
+function set_crow_notes()
+  for i = 1, 4 do
+    local crow_note = crow_chords[params:get("crow_chord")][i]
+    crow.output[i].volts = (params:get("note" .. crow_note)-40)/12
   end
 end
 
@@ -313,7 +327,9 @@ end
 function set_note(synth_num, value)
   notes[synth_num] = value
   --also reset the cents value here too
-  params:set("cents" .. synth_num + 1, 0)
+  if not z_tuning then
+    params:set("cents" .. synth_num + 1, 0)
+  end
   engine.hz(synth_num, MusicUtil.note_num_to_freq(notes[synth_num]))
   engine.hz_lag(synth_num, 0.005)
   if scale_toggle then
@@ -324,13 +340,7 @@ function set_note(synth_num, value)
   end
   screen_dirty = true
   if norns.crow.connected() then
-    --update just the affected crow note. is there a better way to do this?
-    for i = 1, 4 do
-      local crow_out = crow_chords[params:get("crow_chord")][i]
-      if crow_out == synth_num + 1 then
-        crow.output[i].volts = (params:get("note" .. crow_out)-40)/12
-      end
-    end
+    set_crow_notes()
   end
 end
 
@@ -339,6 +349,9 @@ function set_freq(synth_num, value)
   engine.hz_lag(synth_num, 0.005)
   edit = synth_num
   screen_dirty = true
+  if norns.crow.connected() then
+    set_crow_notes()
+  end
 end
 
 function set_vol(synth_num, value)
@@ -522,8 +535,9 @@ function enc(n, delta)
       params:set("vol" .. edit + 1, amp_value)
     elseif key_1_pressed == 0 and key_2_pressed == 1 and key_3_pressed == 0 then
       --set the cents value to increment by
-      params:set("cents" .. edit + 1, params:get("cents" .. edit + 1) + delta)
-
+      if not z_tuning then
+        params:set("cents" .. edit + 1, params:get("cents" .. edit + 1) + delta)
+      end
     elseif key_1_pressed == 0 and key_2_pressed == 0 and key_3_pressed == 1 then
       -- set the fm value
       params:set("fm_index" .. edit + 1, params:get("fm_index" .. edit + 1) + delta)
@@ -577,63 +591,69 @@ function redraw()
   if z_tuning then
     screen.move(0, 5)
     screen.level(2)
-    screen.text("root:")
-    screen.move(22, 5)
-    screen.text((string.format("%.2f", params:get("zt_root_freq"))) .. " hz")
+    screen.text("ztun:")
+    screen.move(24, 5)
+    --get the tuning state
+    tuning_table = z_tuning.get_tuning_state()
+    if tuning_table and tuning_table.selected_tuning then
+      selected_tuning_value = tuning_table.selected_tuning
+    end
+    --clip to fit on the screen
+    screen.text(string.sub(selected_tuning_value, 1, 8))
     screen.move(62, 5)
     screen.level(2)
-    screen.text("z_tun:")
-    screen.move(92, 5)
-    screen.text(selected_tuning_value)
+    screen.text("root:")
+    screen.move(89, 5)
+    screen.text((string.format("%.2f", params:get("zt_root_freq"))) .. "hz")
   else
     screen.move(0, 5)
     screen.level(2)
     screen.text("note: ")
     screen.level(15)
-    screen.move(22, 5)
+    screen.move(24, 5)
     screen.text(MusicUtil.note_num_to_name(params:get("note" .. edit + 1), true) .. " ")
     screen.move(62, 5)
     screen.level(2)
     screen.text("detun:")
     screen.level(15)
-    screen.move(92, 5)
+    screen.move(89, 5)
     screen.text(params:get("cents" .. edit + 1) .. " cents")
   end
   screen.move(0, 12)
   screen.level(2)
   screen.text("envl:")
   screen.level(15)
-  screen.move(22, 12)
+  screen.move(24, 12)
   screen.text(env_formatter(params:get("env" .. edit + 1)))
   screen.level(2)
   screen.move(62, 12)
-  screen.text("fm idx:")
+  screen.text("fmind:")
   screen.level(15)
-  screen.move(92, 12)
+  screen.move(89, 12)
   screen.text(params:get("fm_index" .. edit + 1))
   screen.move(0, 19)
   screen.level(2)
   screen.text("smpl:")
   screen.level(15)
-  screen.move(22, 19)
-  screen.text(params:get("smpl_rate" .. edit + 1) / 1000 .. " kHz")
+  screen.move(24, 19)
+  screen.text(params:get("smpl_rate" .. edit + 1) / 1000 .. "kHz")
   screen.level(2)
   screen.move(62, 19)
-  screen.text("bit dp:")
+  screen.text("bitd:")
   screen.level(15)
-  screen.move(92, 19)
-  screen.text(params:get("bit_depth" .. edit + 1) .. " bits")
+  screen.move(89, 19)
+  screen.text(params:get("bit_depth" .. edit + 1) .. "bits")
   screen.move(0, 26)
   screen.level(2)
   screen.text("pan:")
   screen.level(15)
-  screen.move(22, 26)
+  screen.move(24, 26)
   screen.text(pan_formatter(params:get("pan" .. edit + 1)))
   screen.level(2)
   screen.move(62, 26)
   screen.text("crow:")
   screen.level(15)
-  screen.move(92, 26)
+  screen.move(89, 26)
   if norns.crow.connected() then
     screen.text(crow_chord_formatter(params:get("crow_chord")))
   else
