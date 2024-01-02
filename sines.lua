@@ -11,7 +11,7 @@
 -- E2    - active sine
 --
 -- active sine control:
--- E3      - amplitude
+-- E3      - sine volume
 -- K2 + E2 - note * 
 -- K2 + E3 - detune *
 -- K2 + K3 - voice panning
@@ -20,8 +20,10 @@
 -- K1 + E2 - sample rate
 -- K1 + E3 - bit depth
 --
--- sine control w/ 16n:
--- n                - amplitude
+-- 16n control:
+-- n - sine volume
+--
+-- 16n advanced controls:
 -- n + K2           - detune *
 -- n + K3           - FM index
 -- n + K1 + K2      - sample rate
@@ -201,30 +203,35 @@ function virtual_slider_callback(slider_id, v)
       params:set("vol" .. edit + 1, util.linlin(0, 127, 0.0, 1.0, v))
       prev_16n_slider_v["vol"][slider_id] = v
     end
+
   elseif key_1_pressed == 0 and key_2_pressed == 1 and key_3_pressed == 0 then
-    if not z_tuning then
+    if not z_tuning and params:string("16n_params_jump") == "yes" then
       if is_prev_16n_slider_v_crossing("cents", slider_id, v) then
         params:set("cents" .. edit + 1, util.linlin(0, 127, -200, 200, v))
         prev_16n_slider_v["cents"][slider_id] = v
       end
     end
+
   elseif key_1_pressed == 0 and key_2_pressed == 0 and key_3_pressed == 1 then
-    if is_prev_16n_slider_v_crossing("fm_index", slider_id, v) then
+    if params:string("16n_params_jump") == "yes" and is_prev_16n_slider_v_crossing("fm_index", slider_id, v) then
       params:set("fm_index" .. edit + 1, util.linlin(0, 127, 0.0, 200.0, v))
       prev_16n_slider_v["fm_index"][slider_id] = v
     end
+
   elseif key_1_pressed == 1 and key_2_pressed == 1 and key_3_pressed == 0 then
-    if is_prev_16n_slider_v_crossing("smpl_rate", slider_id, v) then
+    if params:string("16n_params_jump") == "yes" and is_prev_16n_slider_v_crossing("smpl_rate", slider_id, v) then
       params:set("smpl_rate" .. edit + 1, util.linlin(0, 127, 48000, 480, v))
       prev_16n_slider_v["smpl_rate"][slider_id] = v
     end
+
   elseif key_1_pressed == 1 and key_2_pressed == 0 and key_3_pressed == 1 then
-    if is_prev_16n_slider_v_crossing("bit_depth", slider_id, v) then
+    if params:string("16n_params_jump") == "yes" and is_prev_16n_slider_v_crossing("bit_depth", slider_id, v) then
       params:set("bit_depth" .. edit + 1, util.linlin(0, 127, 24, 1, v))
       prev_16n_slider_v["bit_depth"][slider_id] = v
     end
+
   elseif key_1_pressed == 1 and key_2_pressed == 1 and key_3_pressed == 1 then
-    if is_prev_16n_slider_v_crossing("note", slider_id, v) then
+    if params:string("16n_params_jump") == "yes" and is_prev_16n_slider_v_crossing("note", slider_id, v) then
       if not z_tuning then
         params:set("note" .. edit + 1, v)
         prev_16n_slider_v["note"][slider_id] = v
@@ -244,18 +251,17 @@ function add_params()
   params:add{type = "number", id = "root_note", name = "root note",
   min = 0, max = 127, default = 60, formatter = function(param) return MusicUtil.note_num_to_name(param:get(), true) end, action = function() set_notes() end}
 
+  -- crow chords
   params:add{type = "number", id = "crow_chord", name = "crow chord", min = 1, max = 12, default = 5, formatter = function(param) return crow_chord_formatter(param:get()) end, action = function(x) set_crow_chord(x) end}
 
-  params:add{type = "option", id = "16n_auto", name = "auto bind 16n", options = {"yes", "no"}, default = 1}
-  params:add{type = "option", id = "16n_params_jump", name = "16n params jumps", options = {"yes", "no"}, default = 1}
+  --16n control
+  params:add{type = "option", id = "16n_auto", name = "auto bind 16n", options = {"yes", "no"}, default = 1}  
+  params:add{type = "option", id = "16n_params_jump", name = "16n adv param ctrl", options = {"yes", "no"}, default = 2}
+
   --amp slew
   params:add_control("amp_slew", "amp slew", controlspec.new(0.01, 10, 'lin', 0.01, 0.01, 's'))
   params:set_action("amp_slew", function(x) set_amp_slew(x) end)
-  --set virtual faders params
-  params:add_group("virtual faders", 16)
-  for i = 1, 16 do
-    params:add{type = "number", id = "fader" ..i, name = "fader " .. i, min = 0, max = 127, default = 0, action = function(v) virtual_slider_callback(i, v) end}
-  end
+
   --set voice params
   for i = 1, 16 do
     params:add_group("voice " .. i .. " params", 11)
@@ -281,6 +287,11 @@ function add_params()
     params:set_action("bit_depth" .. i, function(x) set_bit_depth(i - 1, x) end)
     params:add_control("smpl_rate" .. i, "sample rate " .. i, controlspec.new(480, 48000, 'lin', 100, 48000, 'hz'))
     params:set_action("smpl_rate" .. i, function(x) set_sample_rate(i - 1, x) end)
+  end
+  --set virtual faders params
+  params:add_group("virtual faders", 16)
+  for i = 1, 16 do
+    params:add{type = "number", id = "fader" ..i, name = "fader " .. i, min = 0, max = 127, default = 0, action = function(v) virtual_slider_callback(i, v) end}
   end
   params:read()
   params:bang()
@@ -478,15 +489,6 @@ end
 m = midi.connect()
 m.event = function(data)
 local d = midi.to_msg(data)
-  -- if d.type == "cc" then
-  -- --set all the sliders + fm values
-  -- for i = 1,16 do
-  -- sliders[i] = (params:get("vol" .. i))*32 - 1
-  -- if sliders[i] > 32 then sliders[i] = 32 end
-  -- if sliders[i] < 0 then sliders[i] = 0 end
-  -- end
-  -- end
-  --allow root note to be set from midi keyboard - doesn't work with multiple midi devices?
   if d.type == "note_on" then
     params:set("root_note", d.note)
   end
@@ -498,6 +500,7 @@ function enc(n, delta)
     if key_1_pressed == 0 then
       params:delta('crow_chord', delta)
     end
+
   elseif n == 2 then
     if key_1_pressed == 0 and key_2_pressed == 0 and key_3_pressed == 0 then
       --navigate up/down the list of sliders
@@ -505,23 +508,13 @@ function enc(n, delta)
       accum = (accum + delta) % 16
       --edit is the slider number
       edit = accum
-
     elseif key_1_pressed == 0 and key_2_pressed == 0 and key_3_pressed == 1 then
       params:set("env" .. edit + 1, params:get("env" .. edit + 1) + delta)
-      --env_accum = (env_accum + delta) % 16
-      --env_edit is the env_values selector
-      --env_edit = env_accum
-      --change the AD env values
-      --env_values[edit+1] = env_edit+1
-      --set the env
-      --set_env(edit+1, env_edit+1)
-
     elseif key_1_pressed == 0 and key_2_pressed == 1 and key_3_pressed == 0 then
       -- increment the note value with delta
       if not z_tuning then
         params:set("note" .. edit + 1, params:get("note" .. edit + 1) + delta)
       end
-
     elseif key_1_pressed == 1 and key_2_pressed == 0 and key_3_pressed == 0 then
       --set sample rate
       params:set("smpl_rate" .. edit + 1, params:get("smpl_rate" .. edit + 1) + (delta) * 1000)
@@ -541,7 +534,6 @@ function enc(n, delta)
     elseif key_1_pressed == 0 and key_2_pressed == 0 and key_3_pressed == 1 then
       -- set the fm value
       params:set("fm_index" .. edit + 1, params:get("fm_index" .. edit + 1) + delta)
-
     elseif key_1_pressed == 1 and key_2_pressed == 0 and key_3_pressed == 0 then
       --set bit depth
       params:set("bit_depth" .. edit + 1, params:get("bit_depth" .. edit + 1) + delta)
