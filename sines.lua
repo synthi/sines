@@ -7,11 +7,11 @@
 --
 -- ▼ controls ▼
 --
--- E1    - select crow chord
--- E2    - active sine
+-- E1 - select crow chord
+-- E2 - active sine
 --
 -- active sine control:
--- E3      - sine volume
+-- E3 - sine volume
 -- K2 + E2 - note * 
 -- K2 + E3 - detune *
 -- K2 + K3 - voice panning
@@ -24,10 +24,10 @@
 -- n - sine volume
 --
 -- 16n advanced controls:
--- n + K2           - detune *
--- n + K3           - FM index
--- n + K1 + K2      - sample rate
--- n + K1 + K3      - bit depth
+-- n + K2 - detune *
+-- n + K3 - FM index
+-- n + K1 + K2 - sample rate
+-- n + K1 + K3 - bit depth
 -- n + K1 + K2 + K3 - note *
 --
 -- * not used when z_tuning is active
@@ -317,14 +317,14 @@ end
 function set_crow_chord(chord)
   for i = 1, 4 do
     local crow_note = crow_chords[chord][i]
-    crow.output[i].volts = (params:get("note" .. crow_note)-40)/12
+    crow.output[i].volts = params:get("note" .. crow_note)/12
   end
 end
 
 function set_crow_notes()
   for i = 1, 4 do
     local crow_note = crow_chords[params:get("crow_chord")][i]
-    crow.output[i].volts = (params:get("note" .. crow_note)-40)/12
+    crow.output[i].volts = params:get("note" .. crow_note)/12
   end
 end
 
