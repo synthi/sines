@@ -1,6 +1,6 @@
---- ~ sines 1.0.0 ~
+--- sines v1.0.0 ~
 -- @oootini, @eigen, @sixolet
--- z_tuning lib by @zebra
+-- z_tuning lib by @graymazes
 --                                  
 -- ,-.   ,-.   ,-.   
 --    `-'   `-'   `-'
@@ -155,11 +155,11 @@ function init()
           num = params:get("note" .. voice)
           hz = MusicUtil.note_num_to_freq(num)
           engine.hz(voice - 1, hz)
+          if norns.crow.connected() then
+            set_crow_note(voice, hz)
+          end
         end
       end)
-    if norns.crow.connected() then
-      set_crow_notes()
-    end
   end
 
 end
@@ -252,7 +252,7 @@ function add_params()
   min = 0, max = 127, default = 60, formatter = function(param) return MusicUtil.note_num_to_name(param:get(), true) end, action = function() set_notes() end}
 
   -- crow chords
-  params:add{type = "number", id = "crow_chord", name = "crow chord", min = 1, max = 12, default = 5, formatter = function(param) return crow_chord_formatter(param:get()) end, action = function(x) set_crow_chord(x) end}
+  params:add{type = "number", id = "crow_chord", name = "crow chord", min = 1, max = 12, default = 5, formatter = function(param) return crow_chord_formatter(param:get()) end}
 
   --16n control
   params:add{type = "option", id = "16n_auto", name = "auto bind 16n", options = {"yes", "no"}, default = 1}  
@@ -311,20 +311,23 @@ function set_notes()
   for i = 1, 16 do
     params:set("note" .. i, notes[i])
   end
-  set_crow_notes()
 end
 
-function set_crow_chord(chord)
-  for i = 1, 4 do
-    local crow_note = crow_chords[chord][i]
-    crow.output[i].volts = params:get("note" .. crow_note)/12
-  end
+function hz_to_1voct(hz, root_freq)
+  local v_oct = math.log10(hz/root_freq)/math.log10(2)
+  return v_oct
 end
 
-function set_crow_notes()
+function set_crow_note(synth_voice, hz)
   for i = 1, 4 do
-    local crow_note = crow_chords[params:get("crow_chord")][i]
-    crow.output[i].volts = params:get("note" .. crow_note)/12
+    local crow_voice = crow_chords[params:get("crow_chord")][i]
+    if crow_voice == synth_voice then
+      if z_tuning then
+        crow.output[i].volts = hz_to_1voct(hz, params:get("zt_root_freq"))
+      else
+        crow.output[i].volts = params:get("note" .. crow_voice)/12       
+      end
+    end
   end
 end
 
@@ -341,7 +344,8 @@ function set_note(synth_num, value)
   if not z_tuning then
     params:set("cents" .. synth_num + 1, 0)
   end
-  engine.hz(synth_num, MusicUtil.note_num_to_freq(notes[synth_num]))
+  local hz_value = MusicUtil.note_num_to_freq(notes[synth_num])
+  engine.hz(synth_num, hz_value)
   engine.hz_lag(synth_num, 0.005)
   if scale_toggle then
     --do nothing
@@ -349,20 +353,20 @@ function set_note(synth_num, value)
   if not scale_toggle then
     edit = synth_num
   end
-  screen_dirty = true
   if norns.crow.connected() then
-    set_crow_notes()
+    set_crow_note(synth_num, hz_value)
   end
+  screen_dirty = true
 end
 
-function set_freq(synth_num, value)
+function set_freq(synth_num, freq)
   engine.hz(synth_num, value)
   engine.hz_lag(synth_num, 0.005)
   edit = synth_num
-  screen_dirty = true
   if norns.crow.connected() then
-    set_crow_notes()
+    set_crow_note(synth_num, freq)
   end
+  screen_dirty = true
 end
 
 function set_vol(synth_num, value)
