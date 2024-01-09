@@ -1,5 +1,5 @@
 --- sines v1.0.0 ~
--- @oootini, @eigen, @sixolet
+-- @oootini, @eigen, @sixolet, @tomwaters
 -- z_tuning lib by @graymazes
 --                                  
 -- ,-.   ,-.   ,-.   
@@ -264,7 +264,7 @@ function add_params()
 
   --set voice params
   for i = 1, 16 do
-    params:add_group("voice " .. i .. " params", 11)
+    params:add_group("voice " .. i .. " params", 12)
     --set voice vols
     params:add_control("vol" .. i, "vol " .. i, controlspec.new(0.0, 1.0, 'lin', 0.01, 0.0))
     params:set_action("vol" .. i, function(x) set_vol(i - 1, x) end)
@@ -281,6 +281,8 @@ function add_params()
     params:set_action("attack" .. i, function(x) set_amp_atk(i - 1, x) end)
     params:add_control("decay" .. i, "env decay " .. i, controlspec.new(0.01, 15.0, 'lin', 0.01, 1.0, 's'))
     params:set_action("decay" .. i, function(x) set_amp_rel(i - 1, x) end)
+    params:add_control("eoc_delay" .. i, "eoc delay " .. i, controlspec.new(0.01, 20.0, 'lin', 0.01, 1.0,'s'))
+    params:set_action("eoc_delay" .. i, function(x) set_amp_eoc_delay(i - 1, x) end)
     params:add_control("env_bias" .. i, "env bias " .. i, controlspec.new(0.0, 1.0, 'lin', 0.1, 1.0))
     params:set_action("env_bias" .. i, function(x) set_env_bias(i - 1, x) end)
     params:add_control("bit_depth" .. i, "bit depth " .. i, controlspec.new(1, 24, 'lin', 1, 24, 'bits'))
@@ -421,6 +423,13 @@ function set_amp_rel(synth_num, value)
   edit = synth_num
   screen_dirty = true
 end
+
+function set_amp_eoc_delay(synth_num, value)
+  engine.eoc_delay(synth_num, value)
+  edit = synth_num
+  screen_dirty = true
+end
+
 
 function set_env_bias(synth_num, value)
   engine.env_bias(synth_num, value)
