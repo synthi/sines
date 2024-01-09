@@ -84,7 +84,7 @@ local redraw_clock
 local screen_dirty = false
 
 --crow "chord intervals" are the individual sine outputs that we use to set 1 v/oct for crow outputs
-local crow_chords = {
+local crow_outs = {
   {1, 3, 5, 7},  -- Maj
   {1, 5, 8, 10}, -- Maj6
   {1, 5, 8, 12}, -- Maj7
@@ -252,7 +252,7 @@ function add_params()
   min = 0, max = 127, default = 60, formatter = function(param) return MusicUtil.note_num_to_name(param:get(), true) end, action = function() set_notes() end}
 
   -- crow chords
-  params:add{type = "number", id = "crow_chord", name = "crow chord", min = 1, max = 12, default = 5, formatter = function(param) return crow_chord_formatter(param:get()) end}
+  params:add{type = "number", id = "crow_outputs", name = "crow outputs", min = 1, max = 12, default = 5, formatter = function(param) return crow_out_formatter(param:get()) end}
 
   --16n control
   params:add{type = "option", id = "16n_auto", name = "auto bind 16n", options = {"yes", "no"}, default = 1}  
@@ -310,6 +310,10 @@ function set_notes()
   scale_toggle = true
   for i = 1, 16 do
     params:set("note" .. i, notes[i])
+    local hz_value = MusicUtil.note_num_to_freq(notes[i])
+    if norns.crow.connected() then
+      set_crow_note(i, hz_value)
+    end
   end
 end
 
@@ -320,7 +324,7 @@ end
 
 function set_crow_note(synth_voice, hz)
   for i = 1, 4 do
-    local crow_voice = crow_chords[params:get("crow_chord")][i]
+    local crow_voice = crow_outs[params:get("crow_outputs")][i]
     if crow_voice == synth_voice then
       if z_tuning then
         crow.output[i].volts = hz_to_1voct(hz, params:get("zt_root_freq"))
@@ -359,13 +363,10 @@ function set_note(synth_num, value)
   screen_dirty = true
 end
 
-function set_freq(synth_num, freq)
+function set_freq(synth_num, value)
   engine.hz(synth_num, value)
   engine.hz_lag(synth_num, 0.005)
   edit = synth_num
-  if norns.crow.connected() then
-    set_crow_note(synth_num, freq)
-  end
   screen_dirty = true
 end
 
@@ -482,11 +483,11 @@ function set_pan()
   end
 end
 
-function crow_chord_formatter(chord)
+function crow_out_formatter(num)
   --return the chord as a string
-  local chord_array = crow_chords[chord]
-  local chord_output = table.concat(chord_array, ",")
-  return (chord_output)
+  local crow_array = crow_outs[num]
+  local crow_output = table.concat(crow_array, ",")
+  return (crow_output)
 end
 
 --update when a cc change is detected
@@ -502,7 +503,7 @@ end
 function enc(n, delta)
   if n == 1 then
     if key_1_pressed == 0 then
-      params:delta('crow_chord', delta)
+      params:delta('crow_outputs', delta)
     end
 
   elseif n == 2 then
@@ -518,6 +519,11 @@ function enc(n, delta)
       -- increment the note value with delta
       if not z_tuning then
         params:set("note" .. edit + 1, params:get("note" .. edit + 1) + delta)
+        local synth_num =  edit + 1
+        local hz_value = MusicUtil.note_num_to_freq(notes[synth_num])
+        if norns.crow.connected() then
+          set_crow_note(synth_num, hz_value)
+        end
       end
     elseif key_1_pressed == 1 and key_2_pressed == 0 and key_3_pressed == 0 then
       --set sample rate
@@ -610,7 +616,7 @@ function redraw()
     screen.text(MusicUtil.note_num_to_name(params:get("note" .. edit + 1), true) .. " ")
     screen.move(62, 5)
     screen.level(2)
-    screen.text("detun:")
+    screen.text("dtun:")
     screen.level(15)
     screen.move(89, 5)
     screen.text(params:get("cents" .. edit + 1) .. " cents")
@@ -651,7 +657,7 @@ function redraw()
   screen.level(15)
   screen.move(89, 26)
   if norns.crow.connected() then
-    screen.text(crow_chord_formatter(params:get("crow_chord")))
+    screen.text(crow_out_formatter(params:get("crow_outputs")))
   else
     screen.text("none")
   end
