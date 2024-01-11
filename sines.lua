@@ -83,20 +83,36 @@ local fps = 14
 local redraw_clock
 local screen_dirty = false
 
---crow "chord intervals" are the individual sine outputs that we use to set 1 v/oct for crow outputs
+-- TODO crow_outs maps individual sine envelopes to crow outs 1-4.
 local crow_outs = {
-  {1, 3, 5, 7},  -- Maj
-  {1, 5, 8, 10}, -- Maj6
-  {1, 5, 8, 12}, -- Maj7
-  {1, 5, 8, 11}, -- Dom7
-  {1, 5, 9, 11}, -- Augm7
-  {1, 6, 8, 11}, -- 7sus4
-  {1, 4, 8, 12}, -- MinMaj7
-  {1, 4, 8, 10}, -- Min6
-  {1, 4, 8, 11}, -- Min7
-  {1, 4, 7, 10}, -- Dim7
-  {1, 4, 7, 11}, -- Min7b5
-  {1, 5, 9, 12}  -- Maj7#5
+  {1, 3, 5, 7},
+  {1, 5, 8, 10},
+  {1, 5, 8, 12},
+  {1, 5, 8, 11},
+  {1, 5, 9, 11},
+  {1, 6, 8, 11},
+  {1, 4, 8, 12},
+  {1, 4, 8, 10},
+  {1, 4, 8, 11},
+  {1, 4, 7, 10},
+  {1, 4, 7, 11},
+  {1, 5, 9, 12}
+}
+
+local sample_bitrates = {
+  {"hifi", 48000, 24},
+  {"clean1", 44100, 12},
+  {"clean2", 32000, 10},
+  {"clean3", 28900, 10},
+  {"grunge1", 34800, 6},
+  {"grunge2", 30700, 6},
+  {"grunge3", 28600, 6},
+  {"lofi1", 24050, 5},
+  {"lofi2", 20950, 4},
+  {"lofi3", 15850, 3},
+  {"crush1", 10000, 3},
+  {"crush2", 6000, 2},
+  {"crush3", 800, 1}
 }
 
 engine.name = "Sines"
@@ -251,7 +267,7 @@ function add_params()
   params:add{type = "number", id = "root_note", name = "root note",
   min = 0, max = 127, default = 60, formatter = function(param) return MusicUtil.note_num_to_name(param:get(), true) end, action = function() set_notes() end}
 
-  -- crow chords
+  -- crow outs
   params:add{type = "number", id = "crow_outputs", name = "crow outputs", min = 1, max = 12, default = 5, formatter = function(param) return crow_out_formatter(param:get()) end}
 
   --16n control
@@ -264,7 +280,7 @@ function add_params()
 
   --set voice params
   for i = 1, 16 do
-    params:add_group("voice " .. i .. " params", 12)
+    params:add_group("voice " .. i .. " params", 13)
     --set voice vols
     params:add_control("vol" .. i, "vol " .. i, controlspec.new(0.0, 1.0, 'lin', 0.01, 0.0))
     params:set_action("vol" .. i, function(x) set_vol(i - 1, x) end)
@@ -281,10 +297,12 @@ function add_params()
     params:set_action("attack" .. i, function(x) set_amp_atk(i - 1, x) end)
     params:add_control("decay" .. i, "env decay " .. i, controlspec.new(0.01, 15.0, 'lin', 0.01, 1.0, 's'))
     params:set_action("decay" .. i, function(x) set_amp_rel(i - 1, x) end)
-    params:add_control("eoc_delay" .. i, "eoc delay " .. i, controlspec.new(0.01, 20.0, 'lin', 0.01, 1.0,'s'))
-    params:set_action("eoc_delay" .. i, function(x) set_amp_eoc_delay(i - 1, x) end)
     params:add_control("env_bias" .. i, "env bias " .. i, controlspec.new(0.0, 1.0, 'lin', 0.1, 1.0))
     params:set_action("env_bias" .. i, function(x) set_env_bias(i - 1, x) end)
+
+    params:add{type = "number", id = "eoc_delay" .. i, name = "env delay " .. i, min = 0, max = 2000, default = 0, formatter = function(param) return eoc_delay_formatter(param:get()) end, action = function(x) set_amp_eoc_delay(i - 1, x) end}
+
+    params:add{type = "number", id = "sample_bitrate" .. i, name = "sample bitrate " .. i, min = 1, max = 13, default = 1, formatter = function(param) return sample_bitrate_formatter(param:get()) end, action = function(x) set_sample_bitrate(i, x) end}
     params:add_control("bit_depth" .. i, "bit depth " .. i, controlspec.new(1, 24, 'lin', 1, 24, 'bits'))
     params:set_action("bit_depth" .. i, function(x) set_bit_depth(i - 1, x) end)
     params:add_control("smpl_rate" .. i, "sample rate " .. i, controlspec.new(480, 48000, 'lin', 100, 48000, 'hz'))
@@ -406,6 +424,28 @@ function env_formatter(value)
   return (env_name)
 end
 
+function crow_out_formatter(num)
+  --return the list as a string
+  local crow_output = table.concat(crow_outs[num], ",")
+  return (crow_output)
+end
+
+function eoc_delay_formatter(value)
+  local eoc_delay_ms = value/100
+  return (eoc_delay_ms)
+end
+
+function sample_bitrate_formatter(value)
+  local sample_bitrate_preset = sample_bitrates[value][1]
+  return (sample_bitrate_preset)
+end
+
+function set_sample_bitrate(synth_num, value)
+  params:set("smpl_rate" .. synth_num, sample_bitrates[value][2])
+  params:set("bit_depth" .. synth_num, sample_bitrates[value][3])
+  screen_dirty = true
+end
+
 function set_fm_index(synth_num, value)
   engine.fm_index(synth_num, value)
   edit = synth_num
@@ -425,11 +465,10 @@ function set_amp_rel(synth_num, value)
 end
 
 function set_amp_eoc_delay(synth_num, value)
-  engine.eoc_delay(synth_num, value)
+  engine.eoc_delay(synth_num, value/100)
   edit = synth_num
   screen_dirty = true
 end
-
 
 function set_env_bias(synth_num, value)
   engine.env_bias(synth_num, value)
@@ -492,13 +531,6 @@ function set_pan()
   end
 end
 
-function crow_out_formatter(num)
-  --return the chord as a string
-  local crow_array = crow_outs[num]
-  local crow_output = table.concat(crow_array, ",")
-  return (crow_output)
-end
-
 --update when a cc change is detected
 m = midi.connect()
 m.event = function(data)
@@ -535,8 +567,8 @@ function enc(n, delta)
         end
       end
     elseif key_1_pressed == 1 and key_2_pressed == 0 and key_3_pressed == 0 then
-      --set sample rate
-      params:set("smpl_rate" .. edit + 1, params:get("smpl_rate" .. edit + 1) + (delta) * 1000)
+      --set sample bitrate
+      params:set("sample_bitrate" .. edit + 1, params:get("sample_bitrate" .. edit + 1) + (delta))
     end
 
   elseif n == 3 then
@@ -551,11 +583,11 @@ function enc(n, delta)
         params:set("cents" .. edit + 1, params:get("cents" .. edit + 1) + delta)
       end
     elseif key_1_pressed == 0 and key_2_pressed == 0 and key_3_pressed == 1 then
+      -- set eoc delay
+      params:set("eoc_delay" .. edit + 1, params:get("eoc_delay" .. edit + 1) + delta)
+    elseif key_1_pressed == 1 and key_2_pressed == 0 and key_3_pressed == 0 then
       -- set the fm value
       params:set("fm_index" .. edit + 1, params:get("fm_index" .. edit + 1) + delta)
-    elseif key_1_pressed == 1 and key_2_pressed == 0 and key_3_pressed == 0 then
-      --set bit depth
-      params:set("bit_depth" .. edit + 1, params:get("bit_depth" .. edit + 1) + delta)
     end
   end
   screen_dirty = true
@@ -638,22 +670,22 @@ function redraw()
   screen.text(env_formatter(params:get("env" .. edit + 1)))
   screen.level(2)
   screen.move(62, 12)
-  screen.text("fmind:")
+  screen.text("envd:")
   screen.level(15)
   screen.move(89, 12)
-  screen.text(params:get("fm_index" .. edit + 1))
+  screen.text(eoc_delay_formatter(params:get("eoc_delay" .. edit + 1)) .. " s")
   screen.move(0, 19)
   screen.level(2)
   screen.text("smpl:")
   screen.level(15)
   screen.move(24, 19)
-  screen.text(params:get("smpl_rate" .. edit + 1) / 1000 .. "kHz")
+  screen.text(sample_bitrate_formatter(params:get("sample_bitrate" .. edit + 1)))
   screen.level(2)
   screen.move(62, 19)
-  screen.text("bitd:")
+  screen.text("fmind:")
   screen.level(15)
   screen.move(89, 19)
-  screen.text(params:get("bit_depth" .. edit + 1) .. "bits")
+  screen.text(params:get("fm_index" .. edit + 1))
   screen.move(0, 26)
   screen.level(2)
   screen.text("pan:")
