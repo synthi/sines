@@ -1,8 +1,8 @@
 --- sines v1.0.0 ~
--- @oootini, @eigen, @sixolet, @tomwaters
--- z_tuning lib by @graymazes
---                                  
--- ,-.   ,-.   ,-.   
+-- @oootini, @p3r7, @sixolet, @tomwaters
+-- z_tuning lib by @catfact
+--
+-- ,-.   ,-.   ,-.
 --    `-'   `-'   `-'
 --
 -- ▼ controls ▼
@@ -12,7 +12,7 @@
 --
 -- active sine control:
 -- E3 - sine volume
--- K2 + E2 - note * 
+-- K2 + E2 - note *
 -- K2 + E3 - detune *
 -- K2 + K3 - voice panning
 -- K3 + E2 - envelope
@@ -37,6 +37,7 @@
 local sliders = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 local edit = 1
 local accum = 1
+local params_select = 1
 -- env_name, env_bias, attack, decay. bias of 1.0 is used to create a static drone
 local envs = {
   {"drone", 1.0, 1.0, 1.0},
@@ -69,8 +70,10 @@ local scale_names = {}
 local key_1_pressed = 0
 local key_2_pressed = 0
 local key_3_pressed = 0
-local toggle = false
 local scale_toggle = false
+local control_toggle = false
+--active state for sliders, params 0-3
+local current_state = {15, 2, 2, 2, 2}
 local prev_16n_slider_v = {
   vol = {},
   cents = {},
@@ -121,7 +124,7 @@ _16n = include "sines/lib/16n"
 MusicUtil = require "musicutil"
 
 function init()
-  print("loaded Sines engine")
+  print("loaded sines engine ~")
   add_params()
   edit = 0
   for i = 1, 16 do
@@ -150,6 +153,7 @@ function init()
       while true do
         clock.sleep(step_s)
         if screen_dirty then
+          set_active()
           redraw()
           screen_dirty = false
         end
@@ -186,7 +190,7 @@ end
 
 function is_prev_16n_slider_v_crossing(mode, i, v)
   local prev_v = prev_16n_slider_v[mode][i]
-  if mode ~= "vol" and params:string("16n_params_jump") == "yes" then
+  if mode ~= "vol" then
     return true
   end
   if prev_v == nil then
@@ -205,7 +209,6 @@ function _16n_slider_callback(midi_msg)
   if params:string("16n_auto") == "no" then
     return
   end
-
   -- update current slider
   params:set("fader" .. slider_id, v)
 end
@@ -214,46 +217,11 @@ function virtual_slider_callback(slider_id, v)
   accum = slider_id - 1
   edit = accum
 
-  if key_1_pressed == 0 and key_3_pressed == 0 and key_2_pressed == 0 then
-    if is_prev_16n_slider_v_crossing("vol", slider_id, v) then
-      params:set("vol" .. edit + 1, util.linlin(0, 127, 0.0, 1.0, v))
-      prev_16n_slider_v["vol"][slider_id] = v
-    end
-
-  elseif key_1_pressed == 0 and key_2_pressed == 1 and key_3_pressed == 0 then
-    if not z_tuning and params:string("16n_params_jump") == "yes" then
-      if is_prev_16n_slider_v_crossing("cents", slider_id, v) then
-        params:set("cents" .. edit + 1, util.linlin(0, 127, -200, 200, v))
-        prev_16n_slider_v["cents"][slider_id] = v
-      end
-    end
-
-  elseif key_1_pressed == 0 and key_2_pressed == 0 and key_3_pressed == 1 then
-    if params:string("16n_params_jump") == "yes" and is_prev_16n_slider_v_crossing("fm_index", slider_id, v) then
-      params:set("fm_index" .. edit + 1, util.linlin(0, 127, 0.0, 200.0, v))
-      prev_16n_slider_v["fm_index"][slider_id] = v
-    end
-
-  elseif key_1_pressed == 1 and key_2_pressed == 1 and key_3_pressed == 0 then
-    if params:string("16n_params_jump") == "yes" and is_prev_16n_slider_v_crossing("smpl_rate", slider_id, v) then
-      params:set("smpl_rate" .. edit + 1, util.linlin(0, 127, 48000, 480, v))
-      prev_16n_slider_v["smpl_rate"][slider_id] = v
-    end
-
-  elseif key_1_pressed == 1 and key_2_pressed == 0 and key_3_pressed == 1 then
-    if params:string("16n_params_jump") == "yes" and is_prev_16n_slider_v_crossing("bit_depth", slider_id, v) then
-      params:set("bit_depth" .. edit + 1, util.linlin(0, 127, 24, 1, v))
-      prev_16n_slider_v["bit_depth"][slider_id] = v
-    end
-
-  elseif key_1_pressed == 1 and key_2_pressed == 1 and key_3_pressed == 1 then
-    if params:string("16n_params_jump") == "yes" and is_prev_16n_slider_v_crossing("note", slider_id, v) then
-      if not z_tuning then
-        params:set("note" .. edit + 1, v)
-        prev_16n_slider_v["note"][slider_id] = v
-      end
-    end
+  if is_prev_16n_slider_v_crossing("vol", slider_id, v) then
+    params:set("vol" .. edit + 1, util.linlin(0, 127, 0.0, 1.0, v))
+    prev_16n_slider_v["vol"][slider_id] = v
   end
+
   screen_dirty = true
 end
 
@@ -271,12 +239,14 @@ function add_params()
   params:add{type = "number", id = "crow_outputs", name = "crow outputs", min = 1, max = 12, default = 5, formatter = function(param) return crow_out_formatter(param:get()) end}
 
   --16n control
-  params:add{type = "option", id = "16n_auto", name = "auto bind 16n", options = {"yes", "no"}, default = 1}  
-  params:add{type = "option", id = "16n_params_jump", name = "16n adv param ctrl", options = {"yes", "no"}, default = 2}
+  params:add{type = "option", id = "16n_auto", name = "auto bind 16n", options = {"yes", "no"}, default = 1}
 
   --amp slew
   params:add_control("amp_slew", "amp slew", controlspec.new(0.01, 10, 'lin', 0.01, 0.01, 's'))
   params:set_action("amp_slew", function(x) set_amp_slew(x) end)
+
+  --global pan settings
+  params:add{type = "number", id = "global_pan", name = "global panning", min = 0, max = 1, default = 0, formatter = function(param) return global_pan_formatter(param:get()) end, action = function(x) set_global_pan(x) end}
 
   --set voice params
   for i = 1, 16 do
@@ -349,14 +319,14 @@ function set_crow_note(synth_voice, hz)
       if z_tuning then
         crow.output[i].volts = hz_to_1voct(hz, params:get("zt_root_freq"))
       else
-        crow.output[i].volts = params:get("note" .. crow_voice)/12       
+        crow.output[i].volts = params:get("note" .. crow_voice)/12
       end
     end
   end
 end
 
 function set_amp_slew(slew_rate)
-  -- set the slew rate for every voice 
+  -- set the slew rate for every voice
   for i = 0, 15 do
     engine.amp_slew(i, slew_rate)
   end
@@ -494,38 +464,61 @@ function set_synth_pan(synth_num, value)
 end
 
 function pan_formatter(value)
-  if value == 1 then
+  if value == -1 then
     text = "right"
   elseif value == 0 then
     text = "middle"
-  elseif value == -1 then
+  elseif value == 1 then
     text = "left"
   end
   return (text)
 end
 
-function set_pan()
-  -- pan position on the bus, -1 is left, 1 is right
-  if key_1_pressed == 0 and key_2_pressed == 1 and key_3_pressed == 1 then
-    toggle = not toggle
-    if toggle then
-      --set hard l/r pan values
-      for i = 1, 16 do
-        if i % 2 == 0 then
-          --even, pan right
-          set_synth_pan(i, 1)
-          params:set("pan" .. i, 1)
-        elseif i % 2 == 1 then
-          --odd, pan left
-          set_synth_pan(i, -1)
-          params:set("pan" .. i, -1)
-        end
-      end
+function global_pan_formatter(value)
+  if value == 0 then
+    text = "middle"
+  elseif value == 1 then
+    text = "left/right"
+  end
+  return (text)
+end
+
+function set_active()
+  if control_toggle then
+    -- set params
+    if params_select == 0 then
+      current_state = {5, 15, 2, 2, 2}
+    elseif params_select == 1 then
+      current_state = {5, 2, 15, 2, 2}
+    elseif params_select == 2 then
+      current_state = {5, 2, 2, 15, 2}
+    elseif params_select == 3 then
+      current_state = {5, 2, 2, 2, 15}
     end
-    if not toggle then
-      for i = 1, 16 do
-        set_synth_pan(i, 0)
-        params:set("pan" .. i, 0)
+  else
+    -- set sliders active
+    current_state = {15, 2, 2, 2, 2}
+  end
+  screen_dirty = true
+end
+
+function set_global_pan(value)
+  -- pan position on the bus, 0 is middle, 1 is l/r
+  if value == 0 then
+    for i = 1, 16 do
+      set_synth_pan(i, 0)
+      params:set("pan" .. i, 0)
+    end
+  elseif value == 1 then
+    for i = 1, 16 do
+      if i % 2 == 0 then
+        --even, pan right
+        set_synth_pan(i, 1)
+        params:set("pan" .. i, 1)
+      elseif i % 2 == 1 then
+        --odd, pan left
+        set_synth_pan(i, -1)
+        params:set("pan" .. i, -1)
       end
     end
   end
@@ -543,72 +536,72 @@ end
 
 function enc(n, delta)
   if n == 1 then
-    if key_1_pressed == 0 then
-      params:delta('crow_outputs', delta)
+    if control_toggle then
+      --select params line 0-3
+      params_select = (params_select + delta) % 4
     end
-
   elseif n == 2 then
-    if key_1_pressed == 0 and key_2_pressed == 0 and key_3_pressed == 0 then
+    if control_toggle then
+      if params_select == 0 then
+        -- increment the note value with delta
+        if not z_tuning then
+          params:set("note" .. edit + 1, params:get("note" .. edit + 1) + delta)
+          local synth_num =  edit + 1
+          local hz_value = MusicUtil.note_num_to_freq(notes[synth_num])
+          if norns.crow.connected() then
+            set_crow_note(synth_num, hz_value)
+          end
+        end
+      elseif  params_select == 1 then
+        --envl
+        params:set("env" .. edit + 1, params:get("env" .. edit + 1) + delta)
+      elseif  params_select == 2 then
+        --smpl
+        params:set("sample_bitrate" .. edit + 1, params:get("sample_bitrate" .. edit + 1) + (delta))
+      elseif  params_select == 3 then
+        --pan
+        params:set("pan" .. edit + 1, params:get("pan" .. edit + 1) + (delta))
+      end
+    elseif not control_toggle then
       --navigate up/down the list of sliders
       --accum wraps around 0-15
       accum = (accum + delta) % 16
       --edit is the slider number
       edit = accum
-    elseif key_1_pressed == 0 and key_2_pressed == 0 and key_3_pressed == 1 then
-      params:set("env" .. edit + 1, params:get("env" .. edit + 1) + delta)
-    elseif key_1_pressed == 0 and key_2_pressed == 1 and key_3_pressed == 0 then
-      -- increment the note value with delta
-      if not z_tuning then
-        params:set("note" .. edit + 1, params:get("note" .. edit + 1) + delta)
-        local synth_num =  edit + 1
-        local hz_value = MusicUtil.note_num_to_freq(notes[synth_num])
-        if norns.crow.connected() then
-          set_crow_note(synth_num, hz_value)
-        end
-      end
-    elseif key_1_pressed == 1 and key_2_pressed == 0 and key_3_pressed == 0 then
-      --set sample bitrate
-      params:set("sample_bitrate" .. edit + 1, params:get("sample_bitrate" .. edit + 1) + (delta))
     end
-
   elseif n == 3 then
-    if key_1_pressed == 0 and key_3_pressed == 0 and key_2_pressed == 0 then
-      --set the slider value
+    if control_toggle then
+      if params_select == 0 then
+        --detun
+        if not z_tuning then
+          params:set("cents" .. edit + 1, params:get("cents" .. edit + 1) + delta)
+        end
+      elseif  params_select == 1 then
+        --envd
+        params:set("eoc_delay" .. edit + 1, params:get("eoc_delay" .. edit + 1) + delta)
+      elseif  params_select == 2 then
+        --fmind
+        params:set("fm_index" .. edit + 1, params:get("fm_index" .. edit + 1) + delta)
+      elseif  params_select == 3 then
+        --crow
+        params:set("crow_outputs", params:get("crow_outputs") + delta)
+      end
+    elseif not control_toggle then
+      --current slider amplitude
       local new_v = sliders[edit + 1] + (delta * 2)
       local amp_value = util.linlin(0, 32, 0.0, 1.0, new_v)
       params:set("vol" .. edit + 1, amp_value)
-    elseif key_1_pressed == 0 and key_2_pressed == 1 and key_3_pressed == 0 then
-      --set the cents value to increment by
-      if not z_tuning then
-        params:set("cents" .. edit + 1, params:get("cents" .. edit + 1) + delta)
-      end
-    elseif key_1_pressed == 0 and key_2_pressed == 0 and key_3_pressed == 1 then
-      -- set eoc delay
-      params:set("eoc_delay" .. edit + 1, params:get("eoc_delay" .. edit + 1) + delta)
-    elseif key_1_pressed == 1 and key_2_pressed == 0 and key_3_pressed == 0 then
-      -- set the fm value
-      params:set("fm_index" .. edit + 1, params:get("fm_index" .. edit + 1) + delta)
     end
   end
   screen_dirty = true
 end
 
 function key(n, z)
-  --use these keypress variables to add extra functionality on key hold
-  if n == 1 and z == 1 then
-    key_1_pressed = 1
-  elseif n == 1 and z == 0 then
-    key_1_pressed = 0
-  elseif n == 2 and z == 1 then
-    key_2_pressed = 1
-  elseif n == 2 and z == 0 then
-    key_2_pressed = 0
+  if n == 2 and z == 1 then
+    control_toggle = not control_toggle
   elseif n == 3 and z == 1 then
-    key_3_pressed = 1
-  elseif n == 3 and z == 0 then
-    key_3_pressed = 0
+    -- TODO lfos?
   end
-  set_pan()
   screen_dirty = true
 end
 
@@ -619,7 +612,7 @@ function redraw()
 
   for i = 0, 15 do
     if i == edit then
-      screen.level(15)
+      screen.level(current_state[1])
     else
       screen.level(2)
     end
@@ -652,50 +645,50 @@ function redraw()
     screen.move(0, 5)
     screen.level(2)
     screen.text("note: ")
-    screen.level(15)
+    screen.level(current_state[2])
     screen.move(24, 5)
     screen.text(MusicUtil.note_num_to_name(params:get("note" .. edit + 1), true) .. " ")
     screen.move(62, 5)
     screen.level(2)
     screen.text("dtun:")
-    screen.level(15)
+    screen.level(current_state[2])
     screen.move(89, 5)
     screen.text(params:get("cents" .. edit + 1) .. " cents")
   end
   screen.move(0, 12)
   screen.level(2)
   screen.text("envl:")
-  screen.level(15)
+  screen.level(current_state[3])
   screen.move(24, 12)
   screen.text(env_formatter(params:get("env" .. edit + 1)))
   screen.level(2)
   screen.move(62, 12)
   screen.text("envd:")
-  screen.level(15)
+  screen.level(current_state[3])
   screen.move(89, 12)
   screen.text(eoc_delay_formatter(params:get("eoc_delay" .. edit + 1)) .. " s")
   screen.move(0, 19)
   screen.level(2)
   screen.text("smpl:")
-  screen.level(15)
+  screen.level(current_state[4])
   screen.move(24, 19)
   screen.text(sample_bitrate_formatter(params:get("sample_bitrate" .. edit + 1)))
   screen.level(2)
   screen.move(62, 19)
   screen.text("fmind:")
-  screen.level(15)
+  screen.level(current_state[4])
   screen.move(89, 19)
   screen.text(params:get("fm_index" .. edit + 1))
   screen.move(0, 26)
   screen.level(2)
   screen.text("pan:")
-  screen.level(15)
+  screen.level(current_state[5])
   screen.move(24, 26)
   screen.text(pan_formatter(params:get("pan" .. edit + 1)))
   screen.level(2)
   screen.move(62, 26)
   screen.text("crow:")
-  screen.level(15)
+  screen.level(current_state[5])
   screen.move(89, 26)
   if norns.crow.connected() then
     screen.text(crow_out_formatter(params:get("crow_outputs")))
