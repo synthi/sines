@@ -19,7 +19,7 @@ Engine_Sines : CroneEngine {
         env_bias=0.0, amp_atk=0.001, amp_rel=0.05, amp_slew=0.01,
         pan=0.0, pan_lag=0.005, mul=1, modPartial=1, carPartial=1, fm_index=1.0, sample_rate=48000, bit_depth=24;
       var mod, vol, car, car_decimate, amp_, hz_, pan_, vol_;
-      vol = EnvFollow.ar(vol, 1.0, 1);
+      vol = EnvFollow.ar(vol, 1.0);
       amp_ = EnvGen.ar(Env.circle([0, 1, 0], [amp_atk, amp_rel, 0.001]), levelBias: env_bias);  
       hz_ = Lag.ar(K2A.ar(hz), hz_lag);
       pan_ = Lag.ar(K2A.ar(pan), pan_lag);
